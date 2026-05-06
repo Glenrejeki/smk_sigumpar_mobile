@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/constants/api_endpoints.dart';
 import '../providers/student_provider.dart';
+import '../../academic/providers/academic_provider.dart';
 import '../../../../data/models/cleanliness_model.dart';
 import '../../../common/widgets/loading_widget.dart';
 import '../../../common/widgets/error_widget.dart';
@@ -16,22 +19,47 @@ class CleanlinessRecapScreen extends StatefulWidget {
 }
 
 class _CleanlinessRecapScreenState extends State<CleanlinessRecapScreen> {
+  String? _selectedClassId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<StudentProvider>().fetchCleanliness(refresh: true);
+      _initData();
     });
   }
 
+  Future<void> _initData() async {
+    final academicProvider = context.read<AcademicProvider>();
+    await academicProvider.fetchClasses(refresh: true);
+    
+    if (academicProvider.classes.isNotEmpty) {
+      setState(() {
+        _selectedClassId = academicProvider.classes.first.id;
+      });
+      _fetchData();
+    }
+  }
+
+  void _fetchData() {
+    context.read<StudentProvider>().fetchCleanliness(classId: _selectedClassId);
+  }
+
   void _showAddCleanlinessSheet() {
+    if (_selectedClassId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih kelas terlebih dahulu')),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => const AddCleanlinessForm(),
+      builder: (context) => AddCleanlinessForm(kelasId: _selectedClassId!),
     );
   }
 
@@ -50,34 +78,52 @@ class _CleanlinessRecapScreenState extends State<CleanlinessRecapScreen> {
         backgroundColor: const Color(0xFF1E6091),
         foregroundColor: Colors.white,
       ),
-      body: Consumer<StudentProvider>(
-        builder: (context, provider, child) {
-          if (provider.cleanlinessState == StudentLoadState.loading && provider.cleanlinessNotes.isEmpty) {
-            return const LoadingWidget();
-          }
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Consumer<AcademicProvider>(
+              builder: (context, academic, child) {
+                if (academic.classes.isEmpty) return const SizedBox.shrink();
+                return DropdownButtonFormField<String>(
+                  value: _selectedClassId,
+                  decoration: InputDecoration(
+                    labelText: 'Pilih Kelas',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: academic.classes.map((c) {
+                    return DropdownMenuItem(value: c.id, child: Text(c.namaKelas));
+                  }).toList(),
+                  onChanged: (val) {
+                    setState(() => _selectedClassId = val);
+                    _fetchData();
+                  },
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: Consumer<StudentProvider>(
+              builder: (context, provider, child) {
+                if (provider.cleanlinessState == StudentLoadState.loading && provider.cleanlinessNotes.isEmpty) {
+                  return const LoadingWidget();
+                }
 
-          if (provider.cleanlinessState == StudentLoadState.error && provider.cleanlinessNotes.isEmpty) {
-            return AppErrorWidget(
-              message: provider.cleanlinessError ?? 'Gagal memuat data',
-              onRetry: () => provider.fetchCleanliness(refresh: true),
-            );
-          }
+                if (provider.cleanlinessState == StudentLoadState.error && provider.cleanlinessNotes.isEmpty) {
+                  return AppErrorWidget(
+                    message: provider.cleanlinessError ?? 'Gagal memuat data',
+                    onRetry: _fetchData,
+                  );
+                }
 
-          final notes = provider.cleanlinessNotes;
+                final notes = provider.cleanlinessNotes;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Kebersihan Kelas',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => provider.fetchCleanliness(refresh: true),
+                if (notes.isEmpty) {
+                  return const Center(child: Text('Belum ada data kebersihan'));
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async => _fetchData(),
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: notes.length,
@@ -86,11 +132,11 @@ class _CleanlinessRecapScreenState extends State<CleanlinessRecapScreen> {
                       return _CleanlinessCard(note: note);
                     },
                   ),
-                ),
-              ),
-            ],
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddCleanlinessSheet,
@@ -106,6 +152,87 @@ class _CleanlinessCard extends StatelessWidget {
   final CleanlinessModel note;
   const _CleanlinessCard({required this.note});
 
+  void _showDetailDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Detail Kebersihan'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _detailItem('Tanggal', DateFormat('dd MMMM yyyy', 'id_ID').format(note.tanggal)),
+              _detailItem('Catatan / Kondisi', note.catatan ?? '-'),
+              if (note.penilaian.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text('Penilaian Item:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+                const Divider(),
+                ...note.penilaian.entries.map((e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(e.key, style: const TextStyle(fontSize: 13)),
+                      Text(e.value.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ],
+                  ),
+                )),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup')),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+          Text(value, style: const TextStyle(fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadFile(BuildContext context) async {
+    String? urlString = note.fotoUrl;
+    if (urlString == null || urlString.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lampiran foto/dokumen tidak tersedia')),
+      );
+      return;
+    }
+
+    // Handle relative paths from backend
+    if (!urlString.startsWith('http')) {
+      urlString = '${ApiEndpoints.baseUrl}$urlString';
+    }
+
+    try {
+      final url = Uri.parse(urlString);
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback for some platforms where canLaunchUrl might return false for specific schemes
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka lampiran: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -118,7 +245,7 @@ class _CleanlinessCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              note.title,
+              note.catatan ?? 'Kebersihan Kelas',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 12),
@@ -127,7 +254,7 @@ class _CleanlinessCard extends StatelessWidget {
                 const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
                 const SizedBox(width: 8),
                 Text(
-                  DateFormat('yyyy-MM-dd').format(note.date),
+                  DateFormat('yyyy-MM-dd').format(note.tanggal),
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ],
@@ -135,11 +262,24 @@ class _CleanlinessCard extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                _ActionButton(icon: Icons.file_download_outlined, onTap: () {}),
+                _ActionButton(
+                  icon: Icons.file_download_outlined,
+                  label: 'Lampiran',
+                  onTap: () => _downloadFile(context),
+                ),
                 const SizedBox(width: 8),
-                _ActionButton(icon: Icons.delete_outline, onTap: () {}),
-                const SizedBox(width: 8),
-                _ActionButton(icon: Icons.visibility_outlined, onTap: () {}),
+                _ActionButton(
+                  icon: Icons.visibility_outlined,
+                  label: 'Detail',
+                  onTap: () => _showDetailDialog(context),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  onPressed: () {
+                    context.read<StudentProvider>().deleteCleanliness(note.id);
+                  },
+                ),
               ],
             )
           ],
@@ -151,27 +291,35 @@ class _CleanlinessCard extends StatelessWidget {
 
 class _ActionButton extends StatelessWidget {
   final IconData icon;
+  final String label;
   final VoidCallback onTap;
-  const _ActionButton({required this.icon, required this.onTap});
+  const _ActionButton({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.grey[200],
+          color: Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 20, color: Colors.grey[600]),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: Colors.blueGrey),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.blueGrey[700])),
+          ],
+        ),
       ),
     );
   }
 }
 
 class AddCleanlinessForm extends StatefulWidget {
-  const AddCleanlinessForm({super.key});
+  final String kelasId;
+  const AddCleanlinessForm({super.key, required this.kelasId});
 
   @override
   State<AddCleanlinessForm> createState() => _AddCleanlinessFormState();
@@ -199,7 +347,7 @@ class _AddCleanlinessFormState extends State<AddCleanlinessForm> {
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'docx'],
+      allowedExtensions: ['pdf', 'docx', 'jpg', 'jpeg', 'png'],
     );
     if (result != null) {
       setState(() => _selectedFile = result.files.first);
@@ -208,21 +356,19 @@ class _AddCleanlinessFormState extends State<AddCleanlinessForm> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || 
-        _selectedDate == null || 
-        _selectedFile == null) {
+        _selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mohon lengkapi semua field dan pilih file')),
+        const SnackBar(content: Text('Mohon lengkapi semua field')),
       );
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      final String formattedDate = DateFormat('d MMMM', 'id_ID').format(_selectedDate!);
       final Map<String, dynamic> data = {
-        'title': 'Kebersihan Kelas $formattedDate',
-        'date': DateFormat('yyyy-MM-dd').format(_selectedDate!),
-        'summary': _summaryController.text,
+        'kelas_id': widget.kelasId,
+        'tanggal': DateFormat('yyyy-MM-dd').format(_selectedDate!),
+        'catatan': _summaryController.text,
       };
 
       if (_selectedFile != null && _selectedFile!.bytes != null) {
@@ -230,7 +376,7 @@ class _AddCleanlinessFormState extends State<AddCleanlinessForm> {
         data['file_name'] = _selectedFile!.name;
       }
 
-      await context.read<StudentProvider>().addCleanlinessNote(data);
+      await context.read<StudentProvider>().addCleanliness(data);
       
       if (mounted) {
         Navigator.pop(context);
@@ -270,7 +416,7 @@ class _AddCleanlinessFormState extends State<AddCleanlinessForm> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
-              
+
               const Text('Tanggal', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               InkWell(
@@ -305,7 +451,7 @@ class _AddCleanlinessFormState extends State<AddCleanlinessForm> {
                 validator: (v) => v?.isEmpty ?? true ? 'Wajib diisi' : null,
               ),
               const SizedBox(height: 16),
-              const Text('Pilih File (PDF/DOCX)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Pilih File (Optional)', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               InkWell(
                 onTap: _pickFile,

@@ -2,59 +2,45 @@ import '../models/attendance_model.dart';
 import '../models/attendance_summary_model.dart';
 import '../models/grade_model.dart';
 import '../models/parenting_note_model.dart';
+import '../models/cleanliness_model.dart';
+import '../models/reflection_model.dart';
+import '../models/summons_letter_model.dart';
 import '../models/student_model.dart';
 import '../../core/network/api_response.dart';
 
 abstract class StudentRepository {
-  // Students
   Future<List<StudentModel>> getAllStudents();
 
-  // Attendance
-  Future<PaginatedResponse<AttendanceModel>> getAttendanceRecap({
-    required String classId,
-    String? month,
-    String? year,
-    int page = 1,
-  });
-  
-  Future<List<AttendanceSummaryModel>> getAttendanceSummary({
-    required String classId,
-    String? month,
-    String? year,
-  });
-
+  // ─── Attendance ──────────────────────────────────────────
+  Future<PaginatedResponse<AttendanceModel>> getAttendanceRecap({required String classId, String? date});
+  Future<List<AttendanceSummaryModel>> getAttendanceSummary({required String classId, String? tanggalMulai, String? tanggalAkhir});
   Future<void> submitAttendance(List<Map<String, dynamic>> data);
 
-  // Grades
-  Future<PaginatedResponse<GradeModel>> getGradesRecap({
-    required String classId,
-    String? semester,
-    String? academicYear,
-    int page = 1,
-  });
-  
-  Future<List<GradeModel>> getStudentGrades({
-    required String studentId,
-    String? semester,
-    String? academicYear,
-  });
+  // ─── Cleanliness (CRUD) ───────────────────────────────────
+  Future<List<CleanlinessModel>> getCleanliness({String? classId});
+  Future<CleanlinessModel> createCleanliness(Map<String, dynamic> data);
+  Future<CleanlinessModel> updateCleanliness(String id, Map<String, dynamic> data);
+  Future<void> deleteCleanliness(String id);
 
-  Future<GradeModel> submitGrade(Map<String, dynamic> data);
-  Future<GradeModel> updateGrade(String id, Map<String, dynamic> data);
-
-  // Cleanliness
-  Future<PaginatedResponse<Map<String, dynamic>>> getCleanlinessRecap({int page = 1});
-  Future<Map<String, dynamic>> submitCleanliness(Map<String, dynamic> data);
-
-  // Parenting Notes
-  Future<PaginatedResponse<ParentingNoteModel>> getParentingNotes({int page = 1});
+  // ─── Parenting (CRUD) ─────────────────────────────────────
+  Future<List<ParentingNoteModel>> getParentingNotes({String? classId, String? studentId});
   Future<ParentingNoteModel> createParentingNote(Map<String, dynamic> data);
+  Future<ParentingNoteModel> updateParentingNote(String id, Map<String, dynamic> data);
+  Future<void> deleteParentingNote(String id);
 
-  // Homeroom Reflection
-  Future<PaginatedResponse<Map<String, dynamic>>> getHomeroomReflections({int page = 1});
-  Future<Map<String, dynamic>> createHomeroomReflection(Map<String, dynamic> data);
+  // ─── Reflection (CRUD) ────────────────────────────────────
+  Future<List<ReflectionModel>> getReflections({String? classId});
+  Future<ReflectionModel> createReflection(Map<String, dynamic> data);
+  Future<ReflectionModel> updateReflection(String id, Map<String, dynamic> data);
+  Future<void> deleteReflection(String id);
 
-  // Summons Letter
-  Future<PaginatedResponse<Map<String, dynamic>>> getSummonsLetters({int page = 1});
-  Future<Map<String, dynamic>> createSummonsLetter(Map<String, dynamic> data);
+  // ─── Summons Letter (CRUD) ────────────────────────────────
+  Future<List<SummonsLetterModel>> getSummonsLetters({String? classId, String? studentId});
+  Future<SummonsLetterModel> createSummonsLetter(Map<String, dynamic> data);
+  Future<SummonsLetterModel> updateSummonsLetter(String id, Map<String, dynamic> data);
+  Future<void> deleteSummonsLetter(String id);
+
+  // ─── Grades ──────────────────────────────────────────────
+  Future<List<GradeModel>> getGradesRecap({required String classId, String? semester, String? academicYear});
+  Future<List<GradeModel>> getStudentGrades({required String studentId, String? semester, String? academicYear});
 }

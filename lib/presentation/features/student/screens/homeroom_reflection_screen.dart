@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../providers/student_provider.dart';
+import '../../academic/providers/academic_provider.dart';
 import '../../../../data/models/reflection_model.dart';
 import '../../../common/widgets/loading_widget.dart';
 import '../../../common/widgets/error_widget.dart';
@@ -14,22 +15,47 @@ class HomeroomReflectionScreen extends StatefulWidget {
 }
 
 class _HomeroomReflectionScreenState extends State<HomeroomReflectionScreen> {
+  String? _selectedClassId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<StudentProvider>().fetchReflections(refresh: true);
+      _initData();
     });
   }
 
+  Future<void> _initData() async {
+    final academicProvider = context.read<AcademicProvider>();
+    await academicProvider.fetchClasses(refresh: true);
+    
+    if (academicProvider.classes.isNotEmpty) {
+      setState(() {
+        _selectedClassId = academicProvider.classes.first.id;
+      });
+      _fetchData();
+    }
+  }
+
+  void _fetchData() {
+    context.read<StudentProvider>().fetchReflections(classId: _selectedClassId);
+  }
+
   void _showAddReflectionSheet() {
+    if (_selectedClassId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih kelas terlebih dahulu')),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => const AddReflectionForm(),
+      builder: (context) => AddReflectionForm(kelasId: _selectedClassId!),
     );
   }
 
@@ -48,34 +74,54 @@ class _HomeroomReflectionScreenState extends State<HomeroomReflectionScreen> {
         backgroundColor: const Color(0xFF1E6091),
         foregroundColor: Colors.white,
       ),
-      body: Consumer<StudentProvider>(
-        builder: (context, provider, child) {
-          if (provider.reflectionState == StudentLoadState.loading && provider.reflections.isEmpty) {
-            return const LoadingWidget();
-          }
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Consumer<AcademicProvider>(
+              builder: (context, academic, child) {
+                if (academic.classes.isEmpty) return const SizedBox.shrink();
+                return DropdownButtonFormField<String>(
+                  value: _selectedClassId,
+                  decoration: InputDecoration(
+                    labelText: 'Pilih Kelas',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: academic.classes.map((c) {
+                    return DropdownMenuItem(value: c.id, child: Text(c.namaKelas));
+                  }).toList(),
+                  onChanged: (val) {
+                    setState(() => _selectedClassId = val);
+                    _fetchData();
+                  },
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: Consumer<StudentProvider>(
+              builder: (context, provider, child) {
+                if (provider.reflectionState == StudentLoadState.loading && provider.reflections.isEmpty) {
+                  return const LoadingWidget();
+                }
 
-          if (provider.reflectionState == StudentLoadState.error && provider.reflections.isEmpty) {
-            return AppErrorWidget(
-              message: provider.reflectionError ?? 'Gagal memuat data',
-              onRetry: () => provider.fetchReflections(refresh: true),
-            );
-          }
+                if (provider.reflectionState == StudentLoadState.error && provider.reflections.isEmpty) {
+                  return AppErrorWidget(
+                    message: provider.reflectionError ?? 'Gagal memuat data',
+                    onRetry: _fetchData,
+                  );
+                }
 
-          final notes = provider.reflections;
+                final notes = provider.reflections;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Refleksi Kelas',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => provider.fetchReflections(refresh: true),
+                if (notes.isEmpty) {
+                  return const Center(child: Text('Belum ada data refleksi'));
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async {
+                     _fetchData();
+                  },
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: notes.length,
@@ -84,11 +130,11 @@ class _HomeroomReflectionScreenState extends State<HomeroomReflectionScreen> {
                       return _ReflectionCard(note: note);
                     },
                   ),
-                ),
-              ),
-            ],
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddReflectionSheet,
@@ -104,6 +150,46 @@ class _ReflectionCard extends StatelessWidget {
   final ReflectionModel note;
   const _ReflectionCard({required this.note});
 
+  void _showDetailDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Detail Refleksi Kelas'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _detailItem('Tanggal Input', DateFormat('dd MMMM yyyy', 'id_ID').format(note.tanggal)),
+              const Divider(),
+              _detailItem('Perkembangan Siswa', note.capaian ?? '-'),
+              const SizedBox(height: 12),
+              _detailItem('Masalah / Tantangan', note.tantangan ?? '-'),
+              if (note.rencana != null && note.rencana!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _detailItem('Rencana Tindak Lanjut', note.rencana!),
+              ]
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup')),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -116,7 +202,9 @@ class _ReflectionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              note.title,
+              note.capaian ?? 'Refleksi Harian',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 12),
@@ -125,17 +213,22 @@ class _ReflectionCard extends StatelessWidget {
                 const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
                 const SizedBox(width: 8),
                 Text(
-                  DateFormat('yyyy-MM-dd').format(note.date),
+                  DateFormat('yyyy-MM-dd').format(note.tanggal),
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _ActionButton(icon: Icons.delete_outline, onTap: () {}),
+                const Spacer(),
+                _ActionButton(
+                  icon: Icons.visibility_outlined,
+                  label: 'Detail',
+                  onTap: () => _showDetailDialog(context),
+                ),
                 const SizedBox(width: 8),
-                _ActionButton(icon: Icons.visibility_outlined, onTap: () {}),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  onPressed: () {
+                    context.read<StudentProvider>().deleteReflection(note.id);
+                  },
+                ),
               ],
             )
           ],
@@ -148,26 +241,34 @@ class _ReflectionCard extends StatelessWidget {
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
-  const _ActionButton({required this.icon, required this.onTap});
+  final String label;
+  const _ActionButton({required this.icon, required this.onTap, required this.label});
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.grey[200],
+          color: Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 20, color: Colors.grey[600]),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: Colors.blueGrey),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.blueGrey[700])),
+          ],
+        ),
       ),
     );
   }
 }
 
 class AddReflectionForm extends StatefulWidget {
-  const AddReflectionForm({super.key});
+  final String kelasId;
+  const AddReflectionForm({super.key, required this.kelasId});
 
   @override
   State<AddReflectionForm> createState() => _AddReflectionFormState();
@@ -177,6 +278,7 @@ class _AddReflectionFormState extends State<AddReflectionForm> {
   final _formKey = GlobalKey<FormState>();
   final _developmentController = TextEditingController();
   final _problemController = TextEditingController();
+  final _planController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _submit() async {
@@ -185,17 +287,20 @@ class _AddReflectionFormState extends State<AddReflectionForm> {
     setState(() => _isLoading = true);
     try {
       final now = DateTime.now();
-      final String formattedDate = DateFormat('d MMMM', 'id_ID').format(now);
+      // Mengirim field 'capaian' dan 'tantangan' sesuai ekspektasi server
       final Map<String, dynamic> data = {
-        'title': 'Refleksi Kelas $formattedDate',
-        'date': DateFormat('yyyy-MM-dd').format(now),
-        'student_development': _developmentController.text,
-        'class_problem': _problemController.text,
+        'kelas_id': widget.kelasId,
+        'tanggal': DateFormat('yyyy-MM-dd').format(now),
+        'capaian': _developmentController.text,
+        'tantangan': _problemController.text,
+        'rencana': _planController.text,
       };
 
       await context.read<StudentProvider>().addReflection(data);
       
+      // Refresh list agar data terbaru dari server (yang tidak null) muncul
       if (mounted) {
+        context.read<StudentProvider>().fetchReflections(classId: widget.kelasId);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Berhasil mengirim refleksi')),
@@ -233,29 +338,43 @@ class _AddReflectionFormState extends State<AddReflectionForm> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
-              
-              const Text('Perkembangan Siswa', style: TextStyle(fontWeight: FontWeight.bold)),
+
+              const Text('Perkembangan Siswa (Capaian)', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _developmentController,
+                maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: 'ketik perkembangan',
+                  hintText: 'Ketik perkembangan...',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 ),
                 validator: (v) => v?.isEmpty ?? true ? 'Wajib diisi' : null,
               ),
               const SizedBox(height: 16),
-              const Text('Masalah Kelas', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Masalah / Tantangan', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _problemController,
+                maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: 'Isi masalah',
+                  hintText: 'Isi masalah...',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 ),
                 validator: (v) => v?.isEmpty ?? true ? 'Wajib diisi' : null,
+              ),
+              const SizedBox(height: 16),
+              const Text('Rencana Tindak Lanjut (Optional)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _planController,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  hintText: 'Rencana ke depan...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
               ),
               const SizedBox(height: 24),
               SizedBox(

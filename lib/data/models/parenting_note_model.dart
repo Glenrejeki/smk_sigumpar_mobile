@@ -2,45 +2,57 @@ import 'package:equatable/equatable.dart';
 
 class ParentingNoteModel extends Equatable {
   final String id;
-  final String title;
-  final String type;
-  final DateTime date;
-  final String? summary;
-  final String? percentage;
-  final String? filePath;
+  final String? siswaId;
+  final String? kelasId;
+  final DateTime tanggal;
+  final int kehadiranOrtu;
+  final String? agenda;
+  final String? ringkasan;
+  final String? catatan;
+  final String? dokumentasi;
+  final String? fotoUrl;
 
   const ParentingNoteModel({
     required this.id,
-    required this.title,
-    required this.type,
-    required this.date,
-    this.summary,
-    this.percentage,
-    this.filePath,
+    this.siswaId,
+    this.kelasId,
+    required this.tanggal,
+    this.kehadiranOrtu = 0,
+    this.agenda,
+    this.ringkasan,
+    this.catatan,
+    this.dokumentasi,
+    this.fotoUrl,
   });
 
   factory ParentingNoteModel.fromJson(Map<String, dynamic> json) {
     return ParentingNoteModel(
       id: json['id']?.toString() ?? '',
-      title: json['title'] ?? '',
-      type: json['type'] ?? '',
-      date: DateTime.tryParse(json['date'] ?? '') ?? DateTime.now(),
-      summary: json['summary'] ?? json['catatan'],
-      percentage: json['percentage']?.toString() ?? json['presentase']?.toString(),
-      filePath: json['file_path'] ?? json['file'],
+      siswaId: json['siswa_id']?.toString(),
+      kelasId: json['kelas_id']?.toString(),
+      tanggal: DateTime.tryParse(json['tanggal'] ?? json['date'] ?? '') ?? DateTime.now(),
+      kehadiranOrtu: json['kehadiran_ortu'] is int ? json['kehadiran_ortu'] : int.tryParse(json['kehadiran_ortu']?.toString() ?? '0') ?? 0,
+      agenda: json['agenda'],
+      ringkasan: json['ringkasan'],
+      catatan: json['catatan'],
+      dokumentasi: json['dokumentasi'],
+      fotoUrl: json['foto_url'],
     );
   }
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'title': title,
-        'type': type,
-        'date': date.toIso8601String(),
-        'summary': summary,
-        'percentage': percentage,
-        'file_path': filePath,
+        'siswa_id': siswaId,
+        'kelas_id': kelasId,
+        'tanggal': tanggal.toIso8601String(),
+        'kehadiran_ortu': kehadiranOrtu,
+        'agenda': agenda,
+        'ringkasan': ringkasan,
+        'catatan': catatan,
+        'dokumentasi': dokumentasi,
+        'foto_url': fotoUrl,
       };
 
   @override
-  List<Object?> get props => [id, title, type, date, summary, percentage, filePath];
+  List<Object?> get props => [id, siswaId, kelasId, tanggal, agenda, ringkasan];
 }

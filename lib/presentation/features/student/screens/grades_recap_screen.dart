@@ -247,7 +247,7 @@ class _GradeDetailView extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     columnSpacing: 20,
-                    headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+                    headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
                     columns: const [
                       DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold))),
                       DataColumn(label: Text('Mapel', style: TextStyle(fontWeight: FontWeight.bold))),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:smk_sigumpar/presentation/common/providers/auth_provider.dart';
 import '../providers/student_provider.dart';
 import '../../academic/providers/academic_provider.dart';
 import '../../../common/widgets/loading_widget.dart';
@@ -28,7 +27,6 @@ class _AttendanceRecapScreenState extends State<AttendanceRecapScreen> {
   }
 
   Future<void> _initData() async {
-    final authProvider = context.read<AuthProvider>();
     final academicProvider = context.read<AcademicProvider>();
     
     // Fetch classes for the teacher/wali
@@ -45,10 +43,20 @@ class _AttendanceRecapScreenState extends State<AttendanceRecapScreen> {
   void _fetchSummary() {
     if (_selectedClassId == null) return;
     
+    String? tanggalMulai;
+    String? tanggalAkhir;
+
+    if (_selectedDate != null) {
+      // If a specific date is picked, maybe we want summary for that day or that month?
+      // Based on the provider, it takes tanggalMulai and tanggalAkhir.
+      // Usually recap is for a range. If only one date is picked, let's assume it's the start date.
+      tanggalMulai = DateFormat('yyyy-MM-dd').format(_selectedDate!);
+    }
+    
     context.read<StudentProvider>().fetchAttendanceSummary(
       classId: _selectedClassId!,
-      month: _selectedDate != null ? DateFormat('MM').format(_selectedDate!) : null,
-      year: _selectedDate != null ? DateFormat('yyyy').format(_selectedDate!) : null,
+      tanggalMulai: tanggalMulai,
+      tanggalAkhir: tanggalAkhir,
     );
   }
 
@@ -219,7 +227,7 @@ class _AttendanceRecapScreenState extends State<AttendanceRecapScreen> {
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     columnSpacing: 20,
-                    headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+                    headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
                     columns: const [
                       DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold))),
                       DataColumn(label: Text('Nama Siswa', style: TextStyle(fontWeight: FontWeight.bold))),
