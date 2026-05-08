@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -161,16 +163,17 @@ class _ParentingCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              _AttachmentPreview(
+                urlString: note.dokumentasi ?? note.fotoUrl,
+                onOpen: () => _downloadFile(context),
+              ),
+              const SizedBox(height: 16),
               _detailItem('Tanggal', DateFormat('dd MMMM yyyy', 'id_ID').format(note.tanggal)),
               _detailItem('Agenda', note.agenda ?? '-'),
               _detailItem('Ringkasan', note.ringkasan ?? '-'),
               _detailItem('Kehadiran Ortu', '${note.kehadiranOrtu} orang'),
               if (note.catatan != null && note.catatan!.isNotEmpty) 
                 _detailItem('Catatan Tambahan', note.catatan!),
-              const SizedBox(height: 16),
-              const Text('Lampiran:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
-              const SizedBox(height: 8),
-              _buildAttachmentPreview(context, note.dokumentasi ?? note.fotoUrl),
             ],
           ),
         ),
@@ -178,52 +181,6 @@ class _ParentingCard extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup')),
         ],
       ),
-    );
-  }
-
-  Widget _buildAttachmentPreview(BuildContext context, String? urlString) {
-    if (urlString == null || urlString.isEmpty) {
-      return const Text('Tidak ada lampiran',
-          style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey));
-    }
-
-    // Deteksi tipe file berdasarkan header Base64
-    bool isPdf = urlString.startsWith('JVBERi');
-    bool isImage = urlString.startsWith('/9j/') || 
-                   urlString.startsWith('iVBORw0KGgo') || 
-                   urlString.startsWith('data:image');
-
-    return Column(
-      children: [
-        if (isImage)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.memory(
-              base64Decode(urlString.contains(',') ? urlString.split(',').last : urlString),
-              height: 150,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50),
-            ),
-          )
-        else if (isPdf)
-          const Column(
-            children: [
-              Icon(Icons.picture_as_pdf, size: 50, color: Colors.red),
-              Text('Dokumen PDF', style: TextStyle(fontSize: 12)),
-            ],
-          )
-        else
-          const Icon(Icons.insert_drive_file, size: 50, color: Colors.blueGrey),
-        
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: () => _downloadFile(context),
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: Text(isImage ? 'Lihat Gambar Full' : 'Buka Dokumen'),
-          style: ElevatedButton.styleFrom(visualDensity: VisualDensity.compact),
-        )
-      ],
     );
   }
 
@@ -252,16 +209,13 @@ class _ParentingCard extends StatelessWidget {
     if (urlString.startsWith('http')) {
       uri = Uri.parse(urlString);
     } else if (urlString.startsWith('JVBERi')) {
-      // PDF Base64
       uri = Uri.parse('data:application/pdf;base64,$urlString');
     } else if (urlString.startsWith('/9j/') || urlString.startsWith('iVBORw0KGgo')) {
-      // Image Base64
       String mime = urlString.startsWith('/9j/') ? 'image/jpeg' : 'image/png';
       uri = Uri.parse('data:$mime;base64,$urlString');
     } else if (urlString.startsWith('data:')) {
       uri = Uri.parse(urlString);
     } else {
-      // Relative Path dari server
       String path = urlString.startsWith('/') ? urlString : '/$urlString';
       uri = Uri.parse('${ApiEndpoints.baseUrl}$path');
     }
@@ -269,8 +223,6 @@ class _ParentingCard extends StatelessWidget {
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        throw 'Tidak bisa membuka tautan';
       }
     } catch (e) {
       if (context.mounted) {
@@ -353,6 +305,151 @@ class _ParentingCard extends StatelessWidget {
   }
 }
 
+class _AttachmentPreview extends StatefulWidget {
+  final String? urlString;
+  final VoidCallback onOpen;
+
+  const _AttachmentPreview({required this.urlString, required this.onOpen});
+
+  @override
+  State<_AttachmentPreview> createState() => _AttachmentPreviewState();
+}
+
+class _AttachmentPreviewState extends State<_AttachmentPreview> {
+  bool isPdf = false;
+  bool isBase64Image = false;
+  bool isNetworkImage = false;
+  String finalUrl = '';
+  Uint8List? decodedBytes;
+  bool _isProcessing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _processAttachment();
+  }
+
+  Future<void> _processAttachment() async {
+    final url = widget.urlString;
+    if (url == null || url.isEmpty) {
+      if (mounted) setState(() => _isProcessing = false);
+      return;
+    }
+
+    isPdf = url.startsWith('JVBERi') || url.toLowerCase().endsWith('.pdf');
+    isBase64Image = url.startsWith('/9j/') || 
+                    url.startsWith('iVBORw0KGgo') || 
+                    url.startsWith('data:image');
+    
+    if (!isPdf && !isBase64Image) {
+       finalUrl = url.startsWith('http') 
+           ? url 
+           : '${ApiEndpoints.baseUrl}${url.startsWith('/') ? url : '/$url'}';
+       
+       isNetworkImage = finalUrl.toLowerCase().endsWith('.jpg') || 
+                        finalUrl.toLowerCase().endsWith('.jpeg') || 
+                        finalUrl.toLowerCase().endsWith('.png') ||
+                        finalUrl.toLowerCase().endsWith('.gif') ||
+                        finalUrl.contains('/storage/');
+    }
+
+    if (isBase64Image) {
+      try {
+        final String base64Str = url.contains(',') ? url.split(',').last : url;
+        // Offload decoding to isolate to prevent UI lag
+        decodedBytes = await compute(base64Decode, base64Str);
+      } catch (e) {
+        debugPrint('Error decoding base64: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.urlString == null || widget.urlString!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    if (_isProcessing) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 20),
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Lampiran:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+        const SizedBox(height: 8),
+        if (isBase64Image && decodedBytes != null)
+          _ImageFrame(child: Image.memory(
+            decodedBytes!,
+            fit: BoxFit.cover,
+            cacheHeight: 400,
+          ))
+        else if (isNetworkImage)
+          _ImageFrame(child: Image.network(
+            finalUrl,
+            fit: BoxFit.cover,
+            cacheHeight: 400,
+            loadingBuilder: (_, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator()),
+            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+          ))
+        else if (isPdf)
+          const Center(child: Column(children: [Icon(Icons.picture_as_pdf, size: 60, color: Colors.red), Text('File PDF', style: TextStyle(fontSize: 12))]))
+        else
+          const Center(child: Icon(Icons.insert_drive_file, size: 60, color: Colors.grey)),
+        
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: widget.onOpen,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: Text((isBase64Image || isNetworkImage) ? 'Lihat Full Screen' : 'Buka Dokumen'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E6091),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ),
+        const Divider(height: 32),
+      ],
+    );
+  }
+}
+
+class _ImageFrame extends StatelessWidget {
+  final Widget child;
+  const _ImageFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 180,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -413,7 +510,7 @@ class _AddParentingFormState extends State<AddParentingForm> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'docx', 'jpg', 'png'],
-      withData: true, // Pastikan data byte disertakan untuk mobile
+      withData: true,
     );
     if (result != null) setState(() => _selectedFile = result.files.first);
   }

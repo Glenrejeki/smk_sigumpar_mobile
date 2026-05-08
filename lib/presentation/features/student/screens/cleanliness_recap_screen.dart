@@ -153,6 +153,18 @@ class _CleanlinessCard extends StatelessWidget {
   const _CleanlinessCard({required this.note});
 
   void _showDetailDialog(BuildContext context) {
+    String? imageUrl = note.fotoUrl;
+    if (imageUrl != null && !imageUrl.startsWith('http')) {
+      imageUrl = '${ApiEndpoints.baseUrl}$imageUrl';
+    }
+
+    final bool isImage = imageUrl != null && (
+        imageUrl.toLowerCase().endsWith('.jpg') ||
+        imageUrl.toLowerCase().endsWith('.jpeg') ||
+        imageUrl.toLowerCase().endsWith('.png') ||
+        imageUrl.toLowerCase().endsWith('.gif')
+    );
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -162,6 +174,31 @@ class _CleanlinessCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isImage) ...[
+                Container(
+                  width: double.infinity,
+                  height: 200,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.grey[200],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const Center(
+                        child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                      ),
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                    ),
+                  ),
+                ),
+              ],
               _detailItem('Tanggal', DateFormat('dd MMMM yyyy', 'id_ID').format(note.tanggal)),
               _detailItem('Catatan / Kondisi', note.catatan ?? '-'),
               if (note.penilaian.isNotEmpty) ...[
